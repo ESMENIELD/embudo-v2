@@ -111,6 +111,7 @@ export default function Checkout({ product }) {
             paymentMethods: {
               creditCard: "all",
               debitCard: "all",
+              mercadoPago: ["wallet_purchase"],
             },
           }}
           onSubmit={handleSubmit}
