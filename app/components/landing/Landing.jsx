@@ -7,6 +7,7 @@ import Pricing from "./Pricing";
 import FAQ from "./FAQ";
 import CTA from "./CTA";
 import Checkout from "./Checkout";
+import LegalFooter from "../legal/LegalFooter";
 import Testimonials from "./Testimonials";
 import Guarantee from "./Guarantee";
 
@@ -51,6 +52,7 @@ export default function Landing({
   buttonText="QUIERO MI PACK KETO"
   onClick={scrollToCheckout}
 />
+      <LegalFooter />
     </main>
   );
 }

@@ -16,22 +16,12 @@ export async function POST(request) {
   try {
     const body = await request.json();
 
-    console.log(
-      "Webhook recibido de Mercado Pago:",
-      body
-    );
-
     const paymentId = body?.data?.id;
 
     if (!paymentId) {
-      console.log(
-        "Webhook sin payment ID"
-      );
-
       return NextResponse.json({
         success: true,
-        message:
-          "Notificación recibida sin payment ID",
+        message: "Notificación recibida sin payment ID",
       });
     }
 
@@ -39,39 +29,13 @@ export async function POST(request) {
      * Consultamos el pago directamente
      * en Mercado Pago.
      */
-    const payment =
-      await getPaymentById(paymentId);
-
-    console.log(
-      "Pago consultado en Mercado Pago:",
-      {
-        id: payment.id,
-        status: payment.status,
-        status_detail:
-          payment.status_detail,
-        external_reference:
-          payment.external_reference,
-        transaction_amount:
-          payment.transaction_amount,
-        payer_email:
-          payment.payer?.email,
-      }
-    );
+    const payment = await getPaymentById(paymentId);
 
     /*
      * La external_reference contiene
-     * EL ID DE NUESTRA ORDEN.
-     *
-     * Ejemplo:
-     *
-     * external_reference = "4"
-     *
-     * Entonces buscamos:
-     *
-     * orders.id = 4
+     * el ID de nuestra orden.
      */
-    const orderId =
-      payment.external_reference;
+    const orderId = payment.external_reference;
 
     if (!orderId) {
       throw new Error(
@@ -79,34 +43,21 @@ export async function POST(request) {
       );
     }
 
-    const order =
-      await getOrderById(orderId);
+    /*
+     * Buscamos nuestra orden.
+     */
+    const order = await getOrderById(orderId);
 
     if (!order) {
       throw new Error(
-        `No existe la orden ${orderId} asociada al pago ${payment.id}`
+        `No existe la orden asociada al pago`
       );
     }
-
-    console.log(
-      "Orden encontrada:",
-      {
-        orderId: order.id,
-        productId: order.product_id,
-        buyerEmail: order.buyer_email,
-        paymentId: order.payment_id,
-        paymentStatus:
-          order.payment_status,
-        deliveryStatus:
-          order.delivery_status,
-      }
-    );
 
     /*
      * Verificamos que el producto exista.
      */
-    const product =
-      getProductById(order.product_id);
+    const product = getProductById(order.product_id);
 
     if (!product) {
       throw new Error(
@@ -115,58 +66,40 @@ export async function POST(request) {
     }
 
     /*
-     * Verificamos el importe.
+     * Verificamos que el importe coincida.
      */
     if (
       Number(payment.transaction_amount) !==
       Number(product.price)
     ) {
       throw new Error(
-        `El monto del pago ${payment.id} no coincide con el producto`
+        "El monto del pago no coincide con el producto"
       );
     }
 
     /*
      * Actualizamos payment_id y estado
      * de nuestra orden.
-     *
-     * Esto ocurre incluso si el pago todavía
-     * está pendiente/rechazado.
      */
-    let updatedOrder =
-      await attachPaymentToOrder({
-        orderId: order.id,
-        paymentId: payment.id,
-        paymentStatus:
-          payment.status,
-      });
+    let updatedOrder = await attachPaymentToOrder({
+      orderId: order.id,
+      paymentId: payment.id,
+      paymentStatus: payment.status,
+    });
 
     /*
-     * Si todavía no está aprobado,
-     * NO entregamos.
+     * Si el pago todavía no está aprobado,
+     * no entregamos el producto.
      */
     if (payment.status !== "approved") {
-      console.log(
-        "Pago todavía no aprobado:",
-        {
-          orderId: order.id,
-          paymentId: payment.id,
-          status: payment.status,
-        }
-      );
-
       return NextResponse.json({
         success: true,
-        message:
-          "Pago recibido pero todavía no está aprobado",
-
+        message: "Pago recibido pero todavía no está aprobado",
         order: updatedOrder,
-
         payment: {
           id: payment.id,
           status: payment.status,
-          status_detail:
-            payment.status_detail,
+          status_detail: payment.status_detail,
         },
       });
     }
@@ -175,96 +108,52 @@ export async function POST(request) {
      * Si ya enviamos el producto,
      * no mandamos otro email.
      */
-    if (
-      updatedOrder.delivery_status ===
-      "sent"
-    ) {
-      console.log(
-        "La orden ya fue entregada:",
-        {
-          orderId: updatedOrder.id,
-          paymentId: payment.id,
-        }
-      );
-
+    if (updatedOrder.delivery_status === "sent") {
       return NextResponse.json({
         success: true,
-        message:
-          "Venta ya procesada y entregada",
+        message: "Venta ya procesada y entregada",
         order: updatedOrder,
       });
     }
 
     /*
-     * MUY IMPORTANTE:
-     *
      * El email utilizado para entregar
-     * SIEMPRE sale de nuestra orden.
-     *
-     * NO usamos payment.payer.email.
+     * siempre sale de nuestra orden.
      */
-    const buyerEmail =
-      updatedOrder.buyer_email;
-
-    console.log(
-      "Enviando producto al email confirmado:",
-      {
-        orderId: updatedOrder.id,
-        email: buyerEmail,
-      }
-    );
-
-    const delivery =
-      await deliverProduct({
-        productId:
-          updatedOrder.product_id,
-        buyerEmail,
-      });
+    const buyerEmail = updatedOrder.buyer_email;
 
     /*
-     * Marcamos la orden como entregada.
+     * Entregamos el producto incluyendo
+     * el número de orden.
      */
-    updatedOrder =
-      await markOrderAsDelivered(
-        updatedOrder.id
-      );
+    const delivery = await deliverProduct({
+      productId: updatedOrder.product_id,
+      buyerEmail,
+      orderId: updatedOrder.id,
+    });
 
-    console.log(
-      "Venta procesada completamente:",
-      {
-        orderId: updatedOrder.id,
-        paymentId: payment.id,
-        productId:
-          updatedOrder.product_id,
-        buyerEmail:
-          updatedOrder.buyer_email,
-        deliveryUrl:
-          delivery.deliveryUrl,
-        emailMessageId:
-          delivery.emailMessageId,
-      }
+    /*
+     * Marcamos la orden como entregada
+     * solamente después de enviar el email.
+     */
+    updatedOrder = await markOrderAsDelivered(
+      updatedOrder.id
     );
 
     return NextResponse.json({
       success: true,
-
-      message:
-        "Pago aprobado y producto entregado correctamente",
-
+      message: "Pago aprobado y producto entregado correctamente",
       order: updatedOrder,
-
       delivery: {
         email: buyerEmail,
-        deliveryUrl:
-          delivery.deliveryUrl,
-        emailMessageId:
-          delivery.emailMessageId,
+        deliveryUrl: delivery.deliveryUrl,
+        emailMessageId: delivery.emailMessageId,
       },
     });
   } catch (error) {
     console.error(
       "Error procesando webhook:",
-      error
+      error.message
     );
 
     return NextResponse.json(
