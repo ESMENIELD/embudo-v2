@@ -1,28 +1,34 @@
-export default function FAQ({ questions = [] }) {
+"use client";
+
+import Reveal from "./Reveal";
+
+export default function CTA({
+  title = "¿LISTA/O PARA COMENZAR?",
+  description = "Accedé ahora al Pack Keto y empezá a organizar tus comidas de una manera simple.",
+  buttonText = "QUIERO MI PACK KETO",
+  onClick,
+}) {
   return (
-    <section className="px-6 py-16">
-      <div className="mx-auto max-w-3xl">
-        <h2 className="text-center text-3xl font-bold text-gray-900">
-          Preguntas frecuentes
-        </h2>
+    <section className="px-6 py-20 sm:py-28">
+      <Reveal>
+        <div className="mx-auto max-w-4xl rounded-3xl border border-lime-400/30 bg-lime-400 px-6 py-12 text-center text-black shadow-[0_0_60px_rgba(163,230,53,0.12)] sm:px-10">
+          <h2 className="text-3xl font-black tracking-tight sm:text-5xl">
+            {title}
+          </h2>
 
-        <div className="mt-10 space-y-4">
-          {questions.map((item) => (
-            <article
-              key={item.id}
-              className="rounded-xl border border-gray-200 p-6"
-            >
-              <h3 className="font-semibold text-gray-900">
-                {item.question}
-              </h3>
+          <p className="mx-auto mt-5 max-w-2xl text-base font-medium sm:text-lg">
+            {description}
+          </p>
 
-              <p className="mt-3 text-gray-600">
-                {item.answer}
-              </p>
-            </article>
-          ))}
+          <button
+            type="button"
+            onClick={onClick}
+            className="mt-8 rounded-xl bg-black px-8 py-4 text-base font-bold text-white transition hover:scale-[1.02] hover:bg-zinc-900"
+          >
+            {buttonText}
+          </button>
         </div>
-      </div>
+      </Reveal>
     </section>
   );
 }

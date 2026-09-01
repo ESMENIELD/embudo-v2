@@ -1,7 +1,8 @@
+
 "use client";
 
 import { initMercadoPago, Payment } from "@mercadopago/sdk-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const publicKey = process.env.NEXT_PUBLIC_MP_PUBLIC_KEY;
 
@@ -12,6 +13,51 @@ if (publicKey) {
 export default function Checkout({ product }) {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [preferenceId, setPreferenceId] = useState(null);
+  const [preferenceLoading, setPreferenceLoading] = useState(true);
+
+  useEffect(() => {
+    async function createPreference() {
+      if (!product?.id) {
+        return;
+      }
+
+      try {
+        setPreferenceLoading(true);
+
+        const response = await fetch("/api/preferences", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            productId: product.id,
+          }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          throw new Error(
+            data.message || "No se pudo crear la preferencia"
+          );
+        }
+
+        setPreferenceId(data.preferenceId);
+      } catch (error) {
+        console.error("Error creando preferencia:", error);
+
+        setMessage(
+          error.message ||
+            "No se pudo preparar el medio de pago de Mercado Pago."
+        );
+      } finally {
+        setPreferenceLoading(false);
+      }
+    }
+
+    createPreference();
+  }, [product?.id]);
 
   if (!product) {
     return null;
@@ -33,7 +79,31 @@ export default function Checkout({ product }) {
     );
   }
 
-  async function handleSubmit({ paymentMethod, formData }) {
+  if (preferenceLoading) {
+    return (
+      <section className="px-6 py-16">
+        <div className="mx-auto max-w-xl">
+          <h2 className="mb-2 text-2xl font-bold">
+            Finalizá tu compra
+          </h2>
+
+          <p className="mb-6 text-gray-600">
+            Total:{" "}
+            <strong>
+              {product.currency}{" "}
+              {product.price.toLocaleString("es-AR")}
+            </strong>
+          </p>
+
+          <p className="text-sm text-gray-600">
+            Preparando los medios de pago...
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  async function handleSubmit({ formData }) {
     setLoading(true);
     setMessage("Procesando pago...");
 
@@ -61,7 +131,10 @@ export default function Checkout({ product }) {
         setMessage(
           "¡Pago aprobado! Estamos preparando tu acceso."
         );
-      } else if (data.payment?.status === "pending") {
+      } else if (
+        data.payment?.status === "pending" ||
+        data.payment?.status === "in_process"
+      ) {
         setMessage(
           "El pago está pendiente de confirmación."
         );
@@ -103,29 +176,32 @@ export default function Checkout({ product }) {
           </strong>
         </p>
 
-        <Payment
-          initialization={{
-            amount: product.price,
-          }}
-          customization={{
-            paymentMethods: {
-              creditCard: "all",
-              debitCard: "all",
-              mercadoPago: ["wallet_purchase"],
-            },
-          }}
-          onSubmit={handleSubmit}
-          onError={(error) => {
-            console.error(
-              "Error en Checkout Brick:",
-              error
-            );
+        {preferenceId && (
+          <Payment
+            initialization={{
+              amount: product.price,
+              preferenceId,
+            }}
+            customization={{
+              paymentMethods: {
+                creditCard: "all",
+                debitCard: "all",
+                mercadoPago: ["wallet_purchase"],
+              },
+            }}
+            onSubmit={handleSubmit}
+            onError={(error) => {
+              console.error(
+                "Error en Checkout Brick:",
+                error
+              );
 
-            setMessage(
-              "Ocurrió un error en el formulario de pago."
-            );
-          }}
-        />
+              setMessage(
+                "Ocurrió un error en el formulario de pago."
+              );
+            }}
+          />
+        )}
 
         {loading && (
           <p className="mt-4 text-sm text-gray-600">
@@ -142,3 +218,4 @@ export default function Checkout({ product }) {
     </section>
   );
 }
+
