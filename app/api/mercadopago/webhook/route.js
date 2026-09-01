@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { getPaymentById } from "../../../../services/payment.service";
 import {
-  createOrder,
+  getOrderById,
   getOrderByPaymentId,
+  attachPaymentToOrder,
   markOrderAsDelivered,
 } from "../../../../services/order.service";
 import { getProductById } from "../../../../services/product.service";
@@ -50,23 +51,69 @@ export async function POST(request) {
       });
     }
 
-    const productId = payment.external_reference;
+    /*
+     * IMPORTANTÍSIMO:
+     *
+     * external_reference ya NO contiene el productId.
+     *
+     * Ahora contiene el ID de nuestra orden.
+     *
+     * Ejemplo:
+     * external_reference = "4"
+     *
+     * Entonces buscamos:
+     * orders.id = 4
+     */
+    const orderId = payment.external_reference;
 
-    if (!productId) {
+    if (!orderId) {
       throw new Error(
         `El pago ${payment.id} no tiene external_reference`
       );
     }
 
-    const product = getProductById(productId);
+    const order = await getOrderById(orderId);
 
-    if (!product) {
+    if (!order) {
       throw new Error(
-        `Producto no encontrado: ${productId}`
+        `No se encontró la orden ${orderId} asociada al pago ${payment.id}`
       );
     }
 
-    // Verificamos que el importe sea el correcto.
+    console.log("Orden encontrada:", {
+      orderId: order.id,
+      buyerEmail: order.buyer_email,
+      productId: order.product_id,
+      paymentId: order.payment_id,
+      paymentStatus: order.payment_status,
+      deliveryStatus: order.delivery_status,
+    });
+
+    // Verificación adicional:
+    // si este payment.id ya está asociado a otra orden,
+    // no procesamos el pago nuevamente.
+    const existingPaymentOrder = await getOrderByPaymentId(
+      payment.id
+    );
+
+    if (
+      existingPaymentOrder &&
+      Number(existingPaymentOrder.id) !== Number(order.id)
+    ) {
+      throw new Error(
+        `El pago ${payment.id} ya está asociado a otra orden (${existingPaymentOrder.id})`
+      );
+    }
+
+    const product = getProductById(order.product_id);
+
+    if (!product) {
+      throw new Error(
+        `Producto no encontrado: ${order.product_id}`
+      );
+    }
+
+    // Verificamos que el importe pagado coincida con el producto.
     if (
       Number(payment.transaction_amount) !==
       Number(product.price)
@@ -76,88 +123,68 @@ export async function POST(request) {
       );
     }
 
-    // Buscamos si ya procesamos este pago.
-    const existingOrder = await getOrderByPaymentId(payment.id);
+    /*
+     * ASOCIAMOS EL PAYMENT.ID A NUESTRA ORDEN.
+     *
+     * El email utilizado sigue siendo:
+     * order.buyer_email
+     *
+     * NO utilizamos payment.payer.email
+     */
+    let updatedOrder = await attachPaymentToOrder({
+      orderId: order.id,
+      paymentId: payment.id,
+      paymentStatus: payment.status,
+    });
 
-    if (existingOrder) {
+    console.log("Pago asociado a la orden:", {
+      orderId: updatedOrder.id,
+      paymentId: updatedOrder.payment_id,
+      buyerEmail: updatedOrder.buyer_email,
+      paymentStatus: updatedOrder.payment_status,
+    });
+
+    // Si ya fue entregada, no enviamos otro email.
+    if (updatedOrder.delivery_status === "sent") {
       console.log(
-        `La venta ${existingOrder.id} ya existe para el pago ${payment.id}`
+        `La orden ${updatedOrder.id} ya fue entregada. No se envía otro email.`
       );
-
-      // Si ya fue entregada, no enviamos otro email.
-      if (existingOrder.delivery_status === "sent") {
-        return NextResponse.json({
-          success: true,
-          message: "Venta ya procesada y entregada",
-          order: existingOrder,
-        });
-      }
-
-      // Si existe pero quedó pendiente, intentamos entregar.
-      const delivery = await deliverProduct({
-        productId: existingOrder.product_id,
-        buyerEmail: existingOrder.buyer_email,
-      });
-
-      const updatedOrder = await markOrderAsDelivered(
-        existingOrder.id
-      );
-
-      console.log("Entrega completada:", {
-        orderId: updatedOrder.id,
-        email: existingOrder.buyer_email,
-        deliveryUrl: delivery.deliveryUrl,
-      });
 
       return NextResponse.json({
         success: true,
-        message: "Venta pendiente entregada correctamente",
+        message: "Venta ya procesada y entregada",
         order: updatedOrder,
       });
     }
 
-    const buyerEmail = payment.payer?.email;
-
-    if (!buyerEmail) {
-      throw new Error(
-        `El pago ${payment.id} no contiene el email del comprador`
-      );
-    }
-
-    // Registramos la venta.
-    const order = await createOrder({
-      paymentId: payment.id,
-      productId: product.id,
-      buyerEmail,
-      amount: payment.transaction_amount,
-      currency: payment.currency_id || product.currency,
-      paymentStatus: payment.status,
-    });
-
-    console.log("Venta registrada en Supabase:", order);
-
-    // Enviamos el acceso por email.
+    /*
+     * ENTREGA
+     *
+     * Usamos EXCLUSIVAMENTE el email que el cliente
+     * introdujo y confirmó en nuestro checkout.
+     */
     const delivery = await deliverProduct({
-      productId: product.id,
-      buyerEmail,
+      productId: updatedOrder.product_id,
+      buyerEmail: updatedOrder.buyer_email,
     });
 
-    // Marcamos la entrega como realizada.
-    const updatedOrder = await markOrderAsDelivered(
-      order.id
+    // Marcamos la orden como entregada.
+    updatedOrder = await markOrderAsDelivered(
+      updatedOrder.id
     );
 
     console.log("Venta procesada completamente:", {
       orderId: updatedOrder.id,
       paymentId: payment.id,
-      productId: product.id,
-      buyerEmail,
+      productId: updatedOrder.product_id,
+      buyerEmail: updatedOrder.buyer_email,
       deliveryUrl: delivery.deliveryUrl,
+      emailMessageId: delivery.emailMessageId,
     });
 
     return NextResponse.json({
       success: true,
-      message: "Pago procesado y producto entregado correctamente",
+      message: "Pago aprobado y producto entregado correctamente",
       order: updatedOrder,
     });
   } catch (error) {
