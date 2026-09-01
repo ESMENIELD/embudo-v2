@@ -1,9 +1,14 @@
 "use client";
 
-import { initMercadoPago, Payment } from "@mercadopago/sdk-react";
+import {
+  initMercadoPago,
+  Payment,
+} from "@mercadopago/sdk-react";
+
 import { useState } from "react";
 
-const publicKey = process.env.NEXT_PUBLIC_MP_PUBLIC_KEY;
+const publicKey =
+  process.env.NEXT_PUBLIC_MP_PUBLIC_KEY;
 
 if (publicKey) {
   initMercadoPago(publicKey, {
@@ -12,21 +17,36 @@ if (publicKey) {
 }
 
 function isValidEmail(email) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+    email
+  );
 }
 
-export default function Checkout({ product }) {
+export default function Checkout({
+  product,
+}) {
   const [step, setStep] = useState(1);
 
-  const [buyerEmail, setBuyerEmail] = useState("");
-  const [confirmEmail, setConfirmEmail] = useState("");
+  const [buyerEmail, setBuyerEmail] =
+    useState("");
 
-  const [message, setMessage] = useState("");
-  const [emailError, setEmailError] = useState("");
+  const [confirmEmail, setConfirmEmail] =
+    useState("");
 
-  const [loading, setLoading] = useState(false);
-  const [preferenceId, setPreferenceId] = useState(null);
-  const [orderId, setOrderId] = useState(null);
+  const [emailError, setEmailError] =
+    useState("");
+
+  const [message, setMessage] =
+    useState("");
+
+  const [loading, setLoading] =
+    useState(false);
+
+  const [preferenceId, setPreferenceId] =
+    useState(null);
+
+  const [orderId, setOrderId] =
+    useState(null);
 
   if (!product) {
     return null;
@@ -41,7 +61,8 @@ export default function Checkout({ product }) {
           </h2>
 
           <p className="mt-2 text-gray-400">
-            Falta configurar NEXT_PUBLIC_MP_PUBLIC_KEY.
+            Falta configurar
+            NEXT_PUBLIC_MP_PUBLIC_KEY.
           </p>
         </div>
       </section>
@@ -52,59 +73,97 @@ export default function Checkout({ product }) {
     setEmailError("");
     setMessage("");
 
-    const email = buyerEmail.trim().toLowerCase();
-    const confirmation = confirmEmail.trim().toLowerCase();
+    const email =
+      buyerEmail.trim().toLowerCase();
+
+    const confirmation =
+      confirmEmail.trim().toLowerCase();
 
     if (!email) {
-      setEmailError("Ingresá tu email.");
+      setEmailError(
+        "Ingresá tu email."
+      );
       return;
     }
 
     if (!isValidEmail(email)) {
-      setEmailError("Ingresá un email válido.");
+      setEmailError(
+        "Ingresá un email válido."
+      );
       return;
     }
 
     if (!confirmation) {
-      setEmailError("Confirmá tu email.");
+      setEmailError(
+        "Confirmá tu email."
+      );
       return;
     }
 
     if (email !== confirmation) {
-      setEmailError("Los emails no coinciden.");
+      setEmailError(
+        "Los emails no coinciden."
+      );
       return;
     }
 
     try {
       setLoading(true);
-      setMessage("Preparando tu pago...");
+      setMessage(
+        "Preparando tu pago..."
+      );
 
-      const response = await fetch("/api/preferences", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          productId: product.id,
-          buyerEmail: email,
-        }),
-      });
+      const response = await fetch(
+        "/api/preferences",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            productId: product.id,
+            buyerEmail: email,
+          }),
+        }
+      );
 
-      const data = await response.json();
+      const data =
+        await response.json();
 
-      if (!response.ok || !data.success) {
+      if (
+        !response.ok ||
+        !data.success
+      ) {
         throw new Error(
           data.message ||
             "No se pudo preparar el medio de pago."
         );
       }
 
-      setPreferenceId(data.preferenceId);
+      console.log(
+        "Checkout preparado:",
+        {
+          orderId: data.orderId,
+          preferenceId:
+            data.preferenceId,
+        }
+      );
+
       setOrderId(data.orderId);
+
+      setPreferenceId(
+        data.preferenceId
+      );
+
       setStep(2);
+
       setMessage("");
     } catch (error) {
-      console.error("Error preparando checkout:", error);
+      console.error(
+        "Error preparando checkout:",
+        error
+      );
 
       setMessage(
         error.message ||
@@ -115,28 +174,142 @@ export default function Checkout({ product }) {
     }
   }
 
-  function handlePaymentSubmit() {
+  /*
+   * IMPORTANTE:
+   *
+   * Mercado Pago espera que onSubmit
+   * devuelva una Promise.
+   *
+   * La resolvemos cuando nuestro backend
+   * terminó de crear el pago.
+   */
+  async function handleSubmit({
+    formData,
+  }) {
     setLoading(true);
     setMessage(
       "Procesando tu pago. No cierres esta ventana..."
     );
-  }
 
-  function handlePaymentError(error) {
-    console.error("Error en Checkout Brick:", error);
+    try {
+      if (!orderId) {
+        throw new Error(
+          "No se encontró la orden de compra."
+        );
+      }
 
-    setLoading(false);
+      console.log(
+        "Enviando pago:",
+        {
+          orderId,
+          productId: product.id,
+        }
+      );
 
-    setMessage(
-      "Ocurrió un error en el formulario de pago. Podés intentar nuevamente."
-    );
+      const response = await fetch(
+        "/api/checkout",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+
+          body: JSON.stringify({
+            orderId,
+            productId: product.id,
+
+            /*
+             * Mandamos los datos del Brick.
+             */
+            ...formData,
+          }),
+        }
+      );
+
+      const data =
+        await response.json();
+
+      console.log(
+        "Respuesta de /api/checkout:",
+        data
+      );
+
+      if (
+        !response.ok ||
+        !data.success
+      ) {
+        throw new Error(
+          data.message ||
+            "No se pudo procesar el pago."
+        );
+      }
+
+      if (
+        data.payment?.status ===
+        "approved"
+      ) {
+        setMessage(
+          "¡Pago aprobado! Estamos preparando tu acceso."
+        );
+      } else if (
+        data.payment?.status ===
+          "pending" ||
+        data.payment?.status ===
+          "in_process"
+      ) {
+        setMessage(
+          "El pago está pendiente de confirmación."
+        );
+      } else if (
+        data.payment?.status ===
+        "rejected"
+      ) {
+        setMessage(
+          "El pago fue rechazado. Podés intentar nuevamente."
+        );
+      } else {
+        setMessage(
+          `Estado del pago: ${
+            data.payment?.status ||
+            "desconocido"
+          }`
+        );
+      }
+
+      /*
+       * IMPORTANTE:
+       *
+       * Le decimos al Payment Brick:
+       * "mi backend terminó correctamente".
+       *
+       * Esto evita que quede infinitamente
+       * mostrando "Procesando pago".
+       */
+      return;
+    } catch (error) {
+      console.error(
+        "Error procesando el pago:",
+        error
+      );
+
+      setMessage(
+        error.message ||
+          "Ocurrió un error al procesar el pago."
+      );
+
+      /*
+       * Al lanzar el error rechazamos
+       * la operación del Brick.
+       */
+      throw error;
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
-    <section
-      id="checkout"
-      className="bg-[#050605] px-6 py-20 text-white"
-    >
+    <section className="bg-[#050605] px-6 py-20 text-white">
       <div className="mx-auto max-w-2xl">
 
         {/* CABECERA */}
@@ -151,8 +324,9 @@ export default function Checkout({ product }) {
           </h2>
 
           <p className="mx-auto mt-4 max-w-lg text-gray-400">
-            Completá tus datos y recibí el acceso al Pack
-            Keto directamente en tu email.
+            Completá tus datos y accedé al
+            Pack Keto después de que tu
+            pago sea aprobado.
           </p>
         </div>
 
@@ -160,9 +334,10 @@ export default function Checkout({ product }) {
 
         <div className="rounded-3xl border border-white/10 bg-[#0D100D] p-6 shadow-2xl md:p-8">
 
-          {/* PRODUCTO / PRECIO */}
+          {/* PRECIO */}
 
-          <div className="mb-8 flex items-center justify-between gap-4 border-b border-white/10 pb-6">
+          <div className="mb-8 flex items-center justify-between border-b border-white/10 pb-6">
+
             <div>
               <p className="text-sm text-gray-400">
                 Estás comprando
@@ -176,9 +351,12 @@ export default function Checkout({ product }) {
             <div className="text-right">
               <p className="text-2xl font-black text-[#B7FF00]">
                 {product.currency}{" "}
-                {product.price.toLocaleString("es-AR")}
+                {product.price.toLocaleString(
+                  "es-AR"
+                )}
               </p>
             </div>
+
           </div>
 
           {/* PASO 1 */}
@@ -187,23 +365,25 @@ export default function Checkout({ product }) {
             <div>
 
               <div className="mb-6">
+
                 <div className="mb-1 text-xs font-bold uppercase tracking-widest text-[#B7FF00]">
                   Paso 1 de 2
                 </div>
 
                 <h3 className="text-2xl font-black">
-                  ¿Dónde querés recibir tu compra?
+                  ¿Dónde recibirás tu Pack?
                 </h3>
 
                 <p className="mt-2 text-sm leading-relaxed text-gray-400">
-                  Este es el email al que enviaremos el
-                  acceso después de confirmar tu pago.
+                  Usaremos este email
+                  exclusivamente para
+                  enviarte el acceso a tu
+                  compra.
                 </p>
+
               </div>
 
               <div className="space-y-5">
-
-                {/* EMAIL */}
 
                 <div>
                   <label
@@ -218,15 +398,15 @@ export default function Checkout({ product }) {
                     type="email"
                     value={buyerEmail}
                     onChange={(event) =>
-                      setBuyerEmail(event.target.value)
+                      setBuyerEmail(
+                        event.target.value
+                      )
                     }
                     placeholder="nombre@email.com"
                     autoComplete="email"
                     className="w-full rounded-xl border border-white/10 bg-[#050605] px-4 py-4 text-white outline-none transition placeholder:text-gray-600 focus:border-[#B7FF00] focus:ring-2 focus:ring-[#B7FF00]/20"
                   />
                 </div>
-
-                {/* CONFIRMACION */}
 
                 <div>
                   <label
@@ -241,7 +421,9 @@ export default function Checkout({ product }) {
                     type="email"
                     value={confirmEmail}
                     onChange={(event) =>
-                      setConfirmEmail(event.target.value)
+                      setConfirmEmail(
+                        event.target.value
+                      )
                     }
                     placeholder="Volvé a escribir tu email"
                     autoComplete="email"
@@ -249,31 +431,27 @@ export default function Checkout({ product }) {
                   />
                 </div>
 
-                {/* ERROR */}
-
                 {emailError && (
                   <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-300">
                     {emailError}
                   </div>
                 )}
 
-                {/* AVISO */}
-
                 <div className="rounded-xl border border-[#B7FF00]/10 bg-[#B7FF00]/5 p-4 text-sm text-gray-300">
-                  <span className="mr-2 font-bold text-[#B7FF00]">
+                  <span className="mr-2 text-[#B7FF00]">
                     ✓
                   </span>
 
-                  Revisá bien tu email. El enlace de
-                  acceso será enviado exactamente a esta
-                  dirección.
+                  El acceso será enviado a
+                  este email después de
+                  confirmar el pago.
                 </div>
-
-                {/* BOTON */}
 
                 <button
                   type="button"
-                  onClick={handleContinue}
+                  onClick={
+                    handleContinue
+                  }
                   disabled={loading}
                   className="w-full rounded-xl bg-[#B7FF00] px-6 py-4 font-black uppercase tracking-wide text-black transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -288,114 +466,135 @@ export default function Checkout({ product }) {
 
           {/* PASO 2 */}
 
-          {step === 2 && preferenceId && (
-            <div>
+          {step === 2 &&
+            preferenceId &&
+            orderId && (
+              <div>
 
-              <div className="mb-6 flex items-center justify-between gap-4">
+                <div className="mb-6 flex items-center justify-between">
 
-                <div>
-                  <div className="mb-1 text-xs font-bold uppercase tracking-widest text-[#B7FF00]">
-                    Paso 2 de 2
+                  <div>
+
+                    <div className="mb-1 text-xs font-bold uppercase tracking-widest text-[#B7FF00]">
+                      Paso 2 de 2
+                    </div>
+
+                    <h3 className="text-2xl font-black">
+                      Elegí cómo pagar
+                    </h3>
+
                   </div>
 
-                  <h3 className="text-2xl font-black">
-                    Elegí cómo pagar
-                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStep(1);
+                      setPreferenceId(
+                        null
+                      );
+                      setOrderId(null);
+                      setMessage("");
+                    }}
+                    className="text-sm text-gray-400 underline underline-offset-4 transition hover:text-[#B7FF00]"
+                  >
+                    Cambiar email
+                  </button>
+
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStep(1);
-                    setMessage("");
-                    setPreferenceId(null);
-                    setOrderId(null);
-                  }}
-                  className="text-sm text-gray-400 underline underline-offset-4 transition hover:text-[#B7FF00]"
-                >
-                  Cambiar email
-                </button>
+                <div className="mb-6 rounded-xl border border-white/10 bg-[#050605] p-4">
 
-              </div>
+                  <p className="text-xs uppercase tracking-wider text-gray-500">
+                    Tu acceso será enviado a
+                  </p>
 
-              {/* EMAIL CONFIRMADO */}
+                  <p className="mt-1 break-all font-semibold text-[#B7FF00]">
+                    {buyerEmail}
+                  </p>
 
-              <div className="mb-6 rounded-xl border border-[#B7FF00]/20 bg-[#B7FF00]/5 p-4">
-
-                <p className="text-xs uppercase tracking-wider text-gray-500">
-                  Tu compra será enviada a
-                </p>
-
-                <p className="mt-1 break-all font-semibold text-[#B7FF00]">
-                  {buyerEmail}
-                </p>
-
-              </div>
-
-              {/* MERCADO PAGO */}
-
-              <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#050605] p-3">
-
-                <Payment
-                  initialization={{
-                    amount: product.price,
-                    preferenceId,
-                  }}
-
-                  customization={{
-                    paymentMethods: {
-                      creditCard: "all",
-                      debitCard: "all",
-                      mercadoPago: ["wallet_purchase"],
-                    },
-
-                    visual: {
-                      style: {
-                        theme: "dark",
-                      },
-
-                      texts: {
-                        formTitle: "Elegí cómo pagar",
-                        emailSectionTitle:
-                          "Datos de contacto",
-                        installmentsSectionTitle:
-                          "Elegí las cuotas",
-                        formSubmit: "Pagar ahora",
-                      },
-                    },
-                  }}
-
-                  onSubmit={handlePaymentSubmit}
-
-                  onError={handlePaymentError}
-                />
-
-              </div>
-
-              {/* SEGURIDAD */}
-
-              <div className="mt-5 space-y-2 text-center text-xs text-gray-500">
-
-                <p>
-                  🔒 Pago procesado de forma segura por
-                  Mercado Pago.
-                </p>
-
-                <p>
-                  Tu acceso será enviado al email que
-                  confirmaste anteriormente.
-                </p>
-
-                {orderId && (
-                  <p className="text-[10px] text-gray-700">
+                  <p className="mt-2 text-xs text-gray-600">
                     Orden #{orderId}
                   </p>
-                )}
+
+                </div>
+
+                {/* MERCADO PAGO */}
+
+                <div className="overflow-hidden rounded-2xl border border-white/10 bg-white p-2">
+
+                  <Payment
+                    initialization={{
+                      amount:
+                        product.price,
+                      preferenceId,
+                    }}
+
+                    customization={{
+                      paymentMethods: {
+                        creditCard:
+                          "all",
+                        debitCard:
+                          "all",
+                        mercadoPago:
+                          [
+                            "wallet_purchase",
+                          ],
+                      },
+
+                      visual: {
+                        style: {
+                          theme: "dark",
+                        },
+
+                        texts: {
+                          formTitle:
+                            "Elegí cómo pagar",
+                          emailSectionTitle:
+                            "Datos de contacto",
+                          installmentsSectionTitle:
+                            "Cuotas",
+                          formSubmit:
+                            "Pagar ahora",
+                        },
+                      },
+                    }}
+
+                    onSubmit={
+                      handleSubmit
+                    }
+
+                    onError={(error) => {
+                      console.error(
+                        "Error en Checkout Brick:",
+                        error
+                      );
+
+                      setMessage(
+                        "Ocurrió un error en el formulario de pago."
+                      );
+                    }}
+
+                    onReady={() => {
+                      console.log(
+                        "Mercado Pago Brick listo"
+                      );
+                    }}
+                  />
+
+                </div>
+
+                <div className="mt-5 flex items-center justify-center gap-2 text-xs text-gray-500">
+                  <span>🔒</span>
+
+                  <span>
+                    Pago procesado de forma
+                    segura por Mercado
+                    Pago
+                  </span>
+                </div>
 
               </div>
-
-            </div>
-          )}
+            )}
 
           {/* MENSAJE */}
 
